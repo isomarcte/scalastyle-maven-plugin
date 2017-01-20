@@ -25,6 +25,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Objects;
 
 import org.apache.maven.model.Resource;
 import org.apache.maven.plugin.AbstractMojo;
@@ -58,6 +59,25 @@ import com.typesafe.config.ConfigFactory;
  */
 @Mojo(name = "check", defaultPhase = LifecyclePhase.VERIFY, requiresProject = true, requiresDependencyResolution = ResolutionScope.TEST)
 public class ScalastyleViolationCheckMojo extends AbstractMojo {
+
+    /**
+     * Get the {@code project.packaging} so that we can inspect it when {@link
+     * skipPackaginTypes} is non-empty.
+     */
+    @Parameter(property = "project.packaging", readonly = true, required = true)
+    private String projectPackaging;
+
+    /**
+     * Maven packaging types which should not have ScalaStyle run on them,
+     * whether or not {@cod skip=true}.
+     * <p>
+     * The most common use for this is to enable ScalaStyle in a multi-module
+     * build, but have it <em>not</em> run on the parent POM, which has a
+     * packaging type of {@code pom}.
+     * <p>
+     */
+    @Parameter(property = "scalastyle.skipPackagingTypes")
+    private String[] skipPackagingTypes;
 
     /**
      * <p>
@@ -182,7 +202,15 @@ public class ScalastyleViolationCheckMojo extends AbstractMojo {
     private ResourceManager resourceManager;
 
     public void execute() throws MojoFailureException, MojoExecutionException {
-        if (Boolean.TRUE.equals(skip)) {
+        if (this.skipPackagingType(this.projectPackaging, this.skipPackagingTypes)) {
+            // Often in multi-module builds it is normal to set the plugin
+            // settings on the parent, which has a packaging type of `pom`, but
+            // we don't normally want to run ScalaStyle on the parent.
+            //
+            // Users may set `skipPackagingTypes` to contain `pom` to enable
+            // such behavior.
+            getLog().info(String.format("Skipping Scalastyle:check for packaging %s", this.projectPackaging));
+        } else if (Boolean.TRUE.equals(skip)) {
             getLog().warn("Scalastyle:check is skipped as scalastyle.skip=true");
         } else {
             getLog().debug("failOnWarning=" + failOnWarning);
@@ -346,5 +374,29 @@ public class ScalastyleViolationCheckMojo extends AbstractMojo {
     private List<File> arrayOrValue(File[] array, File value) {
         return (array != null) ? Arrays.asList(array) : Collections.singletonList(value);
     }
-}
 
+    /**
+     * Checks to see if the current packaging type is a member of the given
+     * {@link Array}.
+     *
+     * @param packagingType the packaging type in question.
+     * @param skipTypes an {@link Array} of packaging types for which ScalaStyle
+     * should not run.
+     *
+     * @return {@code true} if we should not run ScalaStyle, {@code false}
+     * otherwise.
+     */
+    private final boolean skipPackagingType(final String packagingType,
+                                            final String[] skipTypes) {
+        Objects.requireNonNull(skipTypes, "skipTypes");
+        Objects.requireNonNull(packagingType, "packagingType");
+
+        for (final String s : skipTypes) {
+            if (packagingType.equals(s)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
